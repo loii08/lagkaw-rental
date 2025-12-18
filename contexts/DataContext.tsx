@@ -142,15 +142,57 @@ export const DataProvider = ({ children }: { children?: ReactNode }) => {
   const fetchData = async () => {
     setIsLoadingData(true);
     try {
+      if (!currentUser) {
+        setProperties([]);
+        setBills([]);
+        setBookings([]);
+        setApplications([]);
+        setUsers([]);
+        setDbNotifications([]);
+        setPropertyCategories([]);
+        setIsLoadingData(false);
+        return;
+      }
+
+      // Fetch data with user-specific filtering
+      let propsQuery = supabase.from('properties').select('*');
+      let billsQuery = supabase.from('bills').select('*');
+      let bookingsQuery = supabase.from('bookings').select('*, occupants(*)');
+      let appsQuery = supabase.from('applications').select('*');
+      
+      // Apply user-specific filters
+      if (currentUser.role === UserRole.RENTER) {
+        // Renters only see their own bills, bookings, and applications
+        billsQuery = billsQuery.eq('renter_id', currentUser.id);
+        bookingsQuery = bookingsQuery.eq('renter_id', currentUser.id);
+        appsQuery = appsQuery.eq('renter_id', currentUser.id);
+        // Renters can see all properties (for browsing)
+      } else if (currentUser.role === UserRole.OWNER) {
+        // Owners see their properties and related data
+        propsQuery = propsQuery.eq('owner_id', currentUser.id);
+        // Get bills and bookings for owner's properties
+        const { data: ownerProps } = await supabase.from('properties').select('id').eq('owner_id', currentUser.id);
+        const ownerPropIds = ownerProps?.map(p => p.id) || [];
+        if (ownerPropIds.length > 0) {
+          billsQuery = billsQuery.in('property_id', ownerPropIds);
+          bookingsQuery = bookingsQuery.in('property_id', ownerPropIds);
+          appsQuery = appsQuery.in('property_id', ownerPropIds);
+        } else {
+          // If no properties, return empty results
+          billsQuery = billsQuery.eq('id', 'none');
+          bookingsQuery = bookingsQuery.eq('id', 'none');
+          appsQuery = appsQuery.eq('id', 'none');
+        }
+      }
+      // Admins see all data (no filtering)
 
       const [propsRes, billsRes, bookingsRes, usersRes, appsRes, notifsRes, categoriesRes] = await Promise.all([
-        supabase.from('properties').select('*'),
-        supabase.from('bills').select('*'),
-
-        supabase.from('bookings').select('*, occupants(*)'),
+        propsQuery,
+        billsQuery,
+        bookingsQuery,
         supabaseAdmin.from('profiles').select('*'),
-        supabase.from('applications').select('*'),
-        supabase.from('notifications').select('*').order('created_at', { ascending: false }),
+        appsQuery,
+        supabase.from('notifications').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false }),
         supabase.from('property_categories').select('*')
       ]);
 
@@ -164,7 +206,6 @@ export const DataProvider = ({ children }: { children?: ReactNode }) => {
 
       if (propsRes.data) setProperties((propsRes.data as any[]).map(normalizePropertyFromDb));
       if (billsRes.data) setBills(billsRes.data as Bill[]);
-
       if (bookingsRes.data) {
           setBookings(bookingsRes.data as Booking[]);
       }
