@@ -18,17 +18,6 @@ declare global {
 export const supabase = globalThis.__supabaseClient ?? createClient(supabaseUrl, supabaseKey);
 globalThis.__supabaseClient = supabase;
 
-const serviceRoleKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
-
-export const supabaseAdmin =
-  globalThis.__supabaseAdminClient ??
-  (serviceRoleKey
-    ? createClient(supabaseUrl, serviceRoleKey, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
-      })
-    : supabase);
+export const supabaseAdmin = globalThis.__supabaseAdminClient ?? supabase;
 
 globalThis.__supabaseAdminClient = supabaseAdmin;

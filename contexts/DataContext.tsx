@@ -20,9 +20,9 @@ const normalizePropertyStatusFromDb = (status: any): PropertyStatus => {
 };
 
 const normalizePropertyStatusToDb = (status: any): string => {
-  // Postgres enum values are case-sensitive; some schemas use uppercase (e.g., AVAILABLE/OCCUPIED/MAINTENANCE)
+  // Postgres enum values are case-sensitive; this project uses lowercase enum values in DB.
   const ui = normalizePropertyStatusFromDb(status);
-  return String(ui).toUpperCase();
+  return String(ui).toLowerCase();
 };
 
 const normalizePropertyFromDb = (raw: any): Property => {
@@ -504,7 +504,10 @@ export const DataProvider = ({ children }: { children?: ReactNode }) => {
 
       if (Number((updates as any)?.inactive) === 1) {
         try {
-          await (supabaseAdmin as any).auth.admin.signOut(userId);
+          const adminAuth = (supabaseAdmin as any)?.auth?.admin;
+          if (adminAuth?.signOut) {
+            await adminAuth.signOut(userId);
+          }
         } catch (signOutError) {
           console.error('Failed to revoke user sessions after deactivation:', signOutError);
         }

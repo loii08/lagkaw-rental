@@ -175,35 +175,19 @@ export const Login = () => {
             console.error('Login error:', error);
 
             if (error.message.includes('Email not confirmed')) {
-
-                const { data } = await supabaseAdmin.auth.admin.listUsers();
-                const user = (data as any)?.users?.find((u: any) => u.email === email);
-
-                if (user) {
-
-                    await supabaseAdmin.auth.admin.updateUserById(user.id, {
-                        email_confirm: true
+                try {
+                    await supabase.auth.resend({
+                        type: 'signup',
+                        email
                     });
-
-                    const retryResult = await supabase.auth.signInWithPassword({
-                        email,
-                        password
-                    });
-
-                    if (retryResult.data) {
-                        setError('Login successful! Email verified automatically.');
-                        navigate('/');
-                        return;
-                    }
+                } catch {
                 }
 
-                setError('Login successful! However, email verification is required for booking and posting properties.');
-
-                navigate('/');
+                setError('Email not confirmed. Please check your email inbox for the confirmation link, then try signing in again.');
                 return;
             } else if (error.message.includes('Invalid login credentials')) {
                 setError('Invalid email or password. Please try again.');
-                throw error;
+                return;
             } else {
                 setError(error.message);
                 throw error;
