@@ -150,8 +150,8 @@ export const Login = () => {
           const { data: existingProfile } = await supabaseAdmin
             .from('profiles')
             .select('id, inactive, allow_reactivation_request')
-            .ilike('email', email)
-            .single();
+            .eq('email', email)
+            .maybeSingle();
 
           const inactive = Number((existingProfile as any)?.inactive ?? 0);
           if (inactive === 1) {

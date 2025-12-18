@@ -78,6 +78,7 @@ interface DataContextType {
   updateBill: (bill: Bill) => Promise<void>;
   createBill: (bill: Omit<Bill, 'id'>) => Promise<void>;
   searchUserByEmail: (email: string) => Promise<User | null>;
+  fetchUserRole: (userId: string) => Promise<UserRole>;
   updateUser: (user: User) => Promise<void>;
   updateUserFields: (userId: string, updates: Partial<User>) => Promise<User>;
   deleteUser: (userId: string) => Promise<void>;
@@ -452,8 +453,37 @@ export const DataProvider = ({ children }: { children?: ReactNode }) => {
     if (data) setBills(prev => [...prev, data as Bill]);
   };
 
+  const fetchUserRole = async (userId: string): Promise<UserRole> => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .maybeSingle();
+      
+      if (error) {
+        console.error('Error fetching user role:', error);
+        return UserRole.RENTER;
+      }
+      
+      if (!data) {
+        console.log('No profile found for user, defaulting to RENTER role');
+        return UserRole.RENTER;
+      }
+      
+      return data.role as UserRole || UserRole.RENTER;
+    } catch (err) {
+      console.error('Error in fetchUserRole:', err);
+      return UserRole.RENTER;
+    }
+  };
+
   const searchUserByEmail = async (email: string): Promise<User | null> => {
-     const { data } = await supabase.from('profiles').select('*').ilike('email', email).single();
+     const { data, error } = await supabase.from('profiles').select('*').eq('email', email).maybeSingle();
+     if (error) {
+       console.error('Error searching user by email:', error);
+       return null;
+     }
      if (data) return data as User;
      return null;
   };
@@ -1044,7 +1074,7 @@ export const DataProvider = ({ children }: { children?: ReactNode }) => {
       addProperty, updateProperty, deleteProperty,
       addPropertyCategory,
       payBill, updateBill, createBill,
-      searchUserByEmail, updateUser, updateUserFields, deleteUser,
+      searchUserByEmail, fetchUserRole, updateUser, updateUserFields, deleteUser,
       requestVerification, verifyUser, verifyUserPhone, verifyUserEmail,
       submitApplication, processApplication,
       markAsRead, markAllAsRead, clearNotifications,

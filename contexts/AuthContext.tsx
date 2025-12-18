@@ -17,12 +17,38 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-
     const getSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        await fetchProfile(session.user.id, session.user.email!);
-      } else {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          if (error.message?.includes('Invalid Refresh Token') || error.message?.includes('Refresh Token Not Found')) {
+            await supabase.auth.signOut({ scope: 'global' });
+            setCurrentUser(null);
+            setLoading(false);
+            return;
+          }
+          throw error;
+        }
+        
+        if (session?.user) {
+          // Create basic user from session data without profile fetch
+          setCurrentUser({
+            id: session.user.id,
+            email: session.user.email!,
+            role: UserRole.RENTER, // Default role - can be updated later
+            full_name: session.user.user_metadata?.full_name || '',
+            status_type_id: VerificationStatus.UNVERIFIED,
+            is_verified: 0,
+            email_verified: session.user.email_confirmed ? 1 : 0,
+            phone_verified: 0,
+            inactive: 0,
+            allow_reactivation_request: 1
+          });
+        }
+        setLoading(false);
+      } catch (error) {
+        console.error('Error getting session:', error);
+        setCurrentUser(null);
         setLoading(false);
       }
     };
@@ -30,9 +56,27 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
     getSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        await fetchProfile(session.user.id, session.user.email!);
-      } else {
+      try {
+        if (session?.user) {
+          // Create basic user from session data without profile fetch
+          setCurrentUser({
+            id: session.user.id,
+            email: session.user.email!,
+            role: UserRole.RENTER, // Default role - can be updated later
+            full_name: session.user.user_metadata?.full_name || '',
+            status_type_id: VerificationStatus.UNVERIFIED,
+            is_verified: 0,
+            email_verified: session.user.email_confirmed ? 1 : 0,
+            phone_verified: 0,
+            inactive: 0,
+            allow_reactivation_request: 1
+          });
+        } else {
+          setCurrentUser(null);
+        }
+        setLoading(false);
+      } catch (error) {
+        console.error('Error in auth state change:', error);
         setCurrentUser(null);
         setLoading(false);
       }
@@ -40,73 +84,6 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
 
     return () => subscription.unsubscribe();
   }, []);
-
-  const fetchProfile = async (userId: string, email: string) => {
-    try {
-
-      const { data, error } = await supabaseAdmin
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      if (error) {
-        console.error('Error fetching profile:', error);
-
-      }
-
-      if (data) {
-        const inactive = Number((data as any)?.inactive ?? 0);
-        if (inactive === 1) {
-          try {
-            localStorage.setItem('inactive_login_blocked', '1');
-            localStorage.setItem('inactive_login_email', email);
-            localStorage.setItem('inactive_login_userId', userId);
-          } catch {
-
-          }
-
-          try {
-            Object.keys(localStorage)
-              .filter(k => k.startsWith('sb-') && k.endsWith('-auth-token'))
-              .forEach(k => localStorage.removeItem(k));
-          } catch {
-
-          }
-
-          setLoading(false);
-          try {
-            await supabase.auth.signOut();
-          } catch {
-
-          }
-          setCurrentUser(null);
-          return;
-        }
-
-        setCurrentUser({
-            ...data,
-            id: userId,
-            email: email,
-            role: data.role as UserRole,
-            full_name: data.full_name || '',
-            status_type_id: Number((data as any).status_type_id ?? VerificationStatus.UNVERIFIED) as VerificationStatus,
-            is_verified: Number((data as any).is_verified ?? 0),
-            email_verified: Number((data as any).email_verified ?? 0),
-            phone_verified: Number((data as any).phone_verified ?? 0),
-            inactive: Number((data as any).inactive ?? 0),
-            allow_reactivation_request: Number((data as any).allow_reactivation_request ?? 1)
-        });
-      } else {
-        setCurrentUser(null);
-      }
-    } catch (err) {
-      console.error('Error in fetchProfile:', err);
-      setCurrentUser(null);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const login = (user: User) => {
     setCurrentUser(user);

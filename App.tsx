@@ -262,9 +262,42 @@ const MainLayout = ({ children }: { children?: React.ReactNode }) => {
 };
 
 const DashboardRouter = () => {
-  const { currentUser, loading } = useAuth();
+  const { currentUser, loading, login } = useAuth();
+  const { fetchUserRole } = useData();
+  const [userRole, setUserRole] = useState<UserRole | null>(null);
+  const [roleLoading, setRoleLoading] = useState(true);
+  const [roleFetched, setRoleFetched] = useState(false);
 
-  if (loading) {
+  useEffect(() => {
+    const updateUserRole = async () => {
+      if (currentUser && !roleFetched) {
+        try {
+          const role = await fetchUserRole(currentUser.id);
+          setUserRole(role);
+          // Update the current user with the correct role
+          login({ ...currentUser, role });
+          setRoleFetched(true);
+        } catch (error) {
+          console.error('Error fetching user role:', error);
+          setUserRole(UserRole.RENTER); // Default fallback
+          setRoleFetched(true);
+        } finally {
+          setRoleLoading(false);
+        }
+      } else if (!currentUser) {
+        setRoleLoading(false);
+        setRoleFetched(false);
+      }
+    };
+
+    if (!loading && currentUser) {
+      updateUserRole();
+    } else if (!loading) {
+      setRoleLoading(false);
+    }
+  }, [currentUser, loading, roleFetched]); // Removed fetchUserRole and login from dependencies
+
+  if (loading || roleLoading) {
     return (
       <div className="min-h-screen bg-[#FDFBF7] flex items-center justify-center">
         <div className="text-center">
@@ -277,12 +310,14 @@ const DashboardRouter = () => {
 
   if (!currentUser) return <Navigate to="/login" />;
 
+  const actualRole = userRole || currentUser.role;
+
   let DashboardComponent;
-  if (currentUser.role === UserRole.RENTER) {
+  if (actualRole === UserRole.RENTER) {
       DashboardComponent = <RenterDashboard />;
-  } else if (currentUser.role === UserRole.OWNER) {
+  } else if (actualRole === UserRole.OWNER) {
       DashboardComponent = <OwnerDashboard />;
-  } else if (currentUser.role === UserRole.ADMIN) {
+  } else if (actualRole === UserRole.ADMIN) {
       DashboardComponent = <AdminDashboard />;
   } else {
       DashboardComponent = <div className="p-8">Unknown Role</div>;
