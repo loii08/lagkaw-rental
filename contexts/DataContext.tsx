@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode, useMemo, useEffect } from 'react';
-import { Property, Bill, Booking, User, BillStatus, Application, ApplicationStatus, PropertyStatus, Notification, UserRole, VerificationStatus, Occupant } from '../types';
+import { Property, Bill, Booking, User, BillStatus, Application, ApplicationStatus, PropertyStatus, Notification, UserRole, VerificationStatus, Occupant, PropertyCategoryItem } from '../types';
 import { useAuth } from './AuthContext';
 import { supabase, supabaseAdmin } from '../lib/supabase';
 
@@ -66,7 +66,7 @@ interface DataContextType {
   bookings: Booking[];
   users: User[];
   applications: Application[];
-  propertyCategories: string[];
+  propertyCategories: PropertyCategoryItem[];
   readNotificationIds: string[];
   notifications: Notification[];
   unreadNotificationCount: number;
@@ -74,6 +74,8 @@ interface DataContextType {
   updateProperty: (property: Property) => Promise<void>;
   deleteProperty: (id: string) => Promise<void>;
   addPropertyCategory: (name: string) => Promise<void>;
+  updatePropertyCategory: (category: PropertyCategoryItem) => Promise<void>;
+  deletePropertyCategory: (id: string) => Promise<void>;
   payBill: (billId: string) => Promise<void>;
   updateBill: (bill: Bill) => Promise<void>;
   createBill: (bill: Omit<Bill, 'id'>) => Promise<void>;
@@ -88,6 +90,8 @@ interface DataContextType {
   verifyUserEmail: (userId: string, isApproved: boolean, rejectionMessage?: string) => Promise<User>;
   submitApplication: (application: Omit<Application, 'id'>) => Promise<void>;
   processApplication: (appId: string, status: ApplicationStatus) => Promise<void>;
+  createApplication: (application: Omit<Application, 'id'>) => Promise<void>;
+  updateApplication: (application: Application) => Promise<void>;
   markAsRead: (notificationId: string) => void;
   markAllAsRead: () => void;
   clearNotifications: () => Promise<void>;
@@ -107,7 +111,7 @@ export const DataProvider = ({ children }: { children?: ReactNode }) => {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
-  const [propertyCategories, setPropertyCategories] = useState<string[]>([]);
+  const [propertyCategories, setPropertyCategories] = useState<PropertyCategoryItem[]>([]);
   const [dbNotifications, setDbNotifications] = useState<Notification[]>([]);
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>([]);
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
@@ -212,12 +216,24 @@ export const DataProvider = ({ children }: { children?: ReactNode }) => {
       if (usersRes.data) setUsers((usersRes.data as any[]).map(normalizeProfile));
       if (appsRes.data) setApplications(appsRes.data as Application[]);
       if (categoriesRes.data) {
-        const names = (categoriesRes.data as any[])
-          .map((c: any) => c?.name)
-          .filter(Boolean)
-          .map((n: any) => String(n).trim())
-          .filter((n: string) => n.length > 0);
-        setPropertyCategories(Array.from(new Set(names)).sort((a, b) => a.localeCompare(b)));
+        // Handle user-specific categories
+        const categories = (categoriesRes.data as any[]).map((cat: any) => ({
+          id: cat.id,
+          name: cat.name,
+          user_id: cat.user_id,
+          created_at: cat.created_at,
+          updated_at: cat.updated_at
+        }));
+        
+        // Filter categories based on user role
+        let filteredCategories = categories;
+        if (currentUser?.role === UserRole.OWNER) {
+          // Owners see their own categories
+          filteredCategories = categories.filter(cat => cat.user_id === currentUser.id);
+        }
+        // Admins see all categories
+        
+        setPropertyCategories(filteredCategories.sort((a, b) => a.name.localeCompare(b.name)));
       }
       if (notifsRes.data) {
         const formattedNotifications = notifsRes.data.map((notif: any) => ({
@@ -350,7 +366,6 @@ export const DataProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const addProperty = async (property: Omit<Property, 'id'>) => {
-
     const dbProperty = {
       owner_id: property.owner_id,
       title: property.title,
@@ -366,18 +381,19 @@ export const DataProvider = ({ children }: { children?: ReactNode }) => {
       category: normalizePropertyCategory(property.category)
     };
 
-    const { data, error } = await supabase.from('properties').insert(dbProperty).select().single();
+    const { error } = await supabase.from('properties').insert(dbProperty).select().single();
     if (error) {
       console.error('Error adding property:', error);
       throw error;
     }
-    if (data) setProperties(prev => [...prev, normalizePropertyFromDb(data)]);
+    if (!error) {
+        const newProperty = { ...property, id: (dbProperty as any).id };
+        setProperties(prev => [...prev, newProperty]);
+    }
   };
 
   const updateProperty = async (updatedProperty: Property) => {
-
     const dbProperty = {
-      owner_id: updatedProperty.owner_id,
       title: updatedProperty.title,
       description: updatedProperty.description,
       address: updatedProperty.address,
@@ -444,16 +460,73 @@ export const DataProvider = ({ children }: { children?: ReactNode }) => {
       throw new Error('You are not allowed to add categories.');
     }
 
+    const categoryData = {
+      name: trimmed,
+      user_id: currentUser.id
+    };
+
     const { data, error } = await supabase
       .from('property_categories')
-      .insert({ name: trimmed })
+      .insert(categoryData)
       .select()
       .single();
 
     if (error) throw error;
 
-    const created = (data as any)?.name ? String((data as any).name) : trimmed;
-    setPropertyCategories(prev => Array.from(new Set([...prev, created])).sort((a, b) => a.localeCompare(b)));
+    if (data) {
+      const newCategory: PropertyCategoryItem = {
+        id: data.id,
+        name: data.name,
+        user_id: data.user_id,
+        created_at: data.created_at,
+        updated_at: data.updated_at
+      };
+      setPropertyCategories(prev => [...prev, newCategory].sort((a, b) => a.name.localeCompare(b.name)));
+    }
+  };
+
+  const updatePropertyCategory = async (category: PropertyCategoryItem) => {
+    if (!currentUser) return;
+
+    // Check if user owns this category or is admin
+    if (currentUser.role !== UserRole.ADMIN && category.user_id !== currentUser.id) {
+      throw new Error('You can only update your own categories');
+    }
+
+    const { error } = await supabase.from('property_categories').update({
+      name: category.name,
+      updated_at: new Date().toISOString()
+    }).eq('id', category.id);
+
+    if (error) {
+      console.error('Error updating property category:', error);
+      throw error;
+    }
+
+    setPropertyCategories(prev => 
+      prev.map(cat => cat.id === category.id ? category : cat)
+        .sort((a, b) => a.name.localeCompare(b.name))
+    );
+  };
+
+  const deletePropertyCategory = async (id: string) => {
+    if (!currentUser) return;
+
+    // Check if user owns this category or is admin
+    const category = propertyCategories.find(cat => cat.id === id);
+    if (!category) return;
+
+    if (currentUser.role !== UserRole.ADMIN && category.user_id !== currentUser.id) {
+      throw new Error('You can only delete your own categories');
+    }
+
+    const { error } = await supabase.from('property_categories').delete().eq('id', id);
+    if (error) {
+      console.error('Error deleting property category:', error);
+      throw error;
+    }
+
+    setPropertyCategories(prev => prev.filter(cat => cat.id !== id));
   };
 
   const payBill = async (billId: string) => {
@@ -990,6 +1063,123 @@ export const DataProvider = ({ children }: { children?: ReactNode }) => {
     }
   };
 
+  const createApplication = async (application: Omit<Application, 'id'>) => {
+    const existingPending = applications
+      .filter(a => a.property_id === application.property_id && a.renter_id === application.renter_id)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+
+    if (existingPending && existingPending.status === ApplicationStatus.PENDING) {
+      return;
+    }
+
+    const dbApplication = {
+      property_id: application.property_id,
+      renter_id: application.renter_id,
+      status: application.status,
+      message: application.message,
+      move_in_date: application.move_in_date,
+      lease_start_date: application.lease_start_date,
+      lease_end_date: application.lease_end_date,
+      monthly_rent: application.monthly_rent,
+      security_deposit: application.security_deposit,
+      owner_notes: application.owner_notes
+    };
+
+    const { data, error } = await supabase.from('applications').insert(dbApplication).select().single();
+    if (error) {
+      console.error('Error creating application:', error);
+      throw error;
+    }
+
+    if (data) {
+      setApplications(prev => [...prev, data as Application]);
+
+      // Handle documents if provided
+      if (application.documents && application.documents.length > 0) {
+        const documentsWithAppId = application.documents.map(doc => ({
+          ...doc,
+          application_id: data.id
+        }));
+        
+        await supabase.from('application_documents').insert(documentsWithAppId);
+      }
+
+      const prop = properties.find(p => p.id === application.property_id);
+      if (prop?.owner_id) {
+        supabase
+          .from('notifications')
+          .insert({
+            user_id: prop.owner_id,
+            title: 'New Application',
+            message: 'You received a new rental application.',
+            type: 'info',
+            link: '/?section=applications',
+            is_read: false
+          })
+          .then(
+            () => fetchData(),
+            () => undefined
+          );
+      }
+    }
+  };
+
+  const updateApplication = async (application: Application) => {
+    const { error } = await supabase.from('applications').update({
+      status: application.status,
+      message: application.message,
+      move_in_date: application.move_in_date,
+      lease_start_date: application.lease_start_date,
+      lease_end_date: application.lease_end_date,
+      monthly_rent: application.monthly_rent,
+      security_deposit: application.security_deposit,
+      owner_notes: application.owner_notes,
+      updated_at: new Date().toISOString()
+    }).eq('id', application.id);
+
+    if (error) {
+      console.error('Error updating application:', error);
+      throw error;
+    }
+
+    setApplications(prev => prev.map(app => 
+      app.id === application.id ? application : app
+    ));
+
+    // Send notification to applicant about status change
+    const applicant = users.find(u => u.id === application.renter_id);
+    if (applicant) {
+      let notificationTitle = 'Application Status Updated';
+      let notificationMessage = `Your application has been ${application.status.replace('_', ' ').toLowerCase()}.`;
+      
+      if (application.status === ApplicationStatus.APPROVED) {
+        notificationTitle = 'Application Approved!';
+        notificationMessage = 'Congratulations! Your rental application has been approved.';
+      } else if (application.status === ApplicationStatus.REJECTED) {
+        notificationTitle = 'Application Rejected';
+        notificationMessage = 'Your rental application was not approved.';
+      } else if (application.status === ApplicationStatus.LEASE_SIGNED) {
+        notificationTitle = 'Lease Signed';
+        notificationMessage = 'Your lease agreement has been signed and is now active.';
+      }
+
+      supabase
+        .from('notifications')
+        .insert({
+          user_id: application.renter_id,
+          title: notificationTitle,
+          message: notificationMessage,
+          type: application.status === ApplicationStatus.APPROVED ? 'success' : 'info',
+          link: `/applications`,
+          is_read: false
+        })
+        .then(
+          () => fetchData(),
+          () => undefined
+        );
+    }
+  };
+
   const processApplication = async (appId: string, status: ApplicationStatus) => {
     const app = applications.find(a => a.id === appId);
     if (!app) return;
@@ -1113,11 +1303,11 @@ export const DataProvider = ({ children }: { children?: ReactNode }) => {
       readNotificationIds, notifications, unreadNotificationCount, isLoadingData,
       refreshData: fetchData,
       addProperty, updateProperty, deleteProperty,
-      addPropertyCategory,
+      addPropertyCategory, updatePropertyCategory, deletePropertyCategory,
       payBill, updateBill, createBill,
       searchUserByEmail, fetchUserRole, updateUser, updateUserFields, deleteUser,
       requestVerification, verifyUser, verifyUserPhone, verifyUserEmail,
-      submitApplication, processApplication,
+      submitApplication, createApplication, updateApplication, processApplication,
       markAsRead, markAllAsRead, clearNotifications,
       addBooking, updateBooking
     }}>

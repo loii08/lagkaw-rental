@@ -33,7 +33,10 @@ export const Properties = () => {
 
     const matchesCategory = categoryFilter === 'ALL' ? true : String(p.category) === categoryFilter;
 
-    return matchesSearch && matchesPrice && matchesBedrooms && matchesStatus && matchesCategory;
+    // Exclude occupied/rented properties from renter browse view
+    const isAvailable = p.status !== PropertyStatus.OCCUPIED;
+
+    return matchesSearch && matchesPrice && matchesBedrooms && matchesStatus && matchesCategory && isAvailable;
   });
 
   return (

@@ -43,6 +43,14 @@ export enum PropertyCategory {
   OTHER = 'other'
 }
 
+export interface PropertyCategoryItem {
+  id: string;
+  name: string;
+  user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export enum PropertyStatus {
   AVAILABLE = 'available',
   OCCUPIED = 'occupied',
@@ -63,6 +71,13 @@ export interface Property {
   status: PropertyStatus;
   amenities: string[];
   category: string;
+  available_date?: string;
+  reserved_until?: string;
+  current_renter_id?: string;
+  lease_start_date?: string;
+  lease_end_date?: string;
+  security_deposit?: number;
+  monthly_rent?: number;
   created_at: string;
   updated_at: string;
 }
@@ -120,9 +135,12 @@ export interface Booking {
 
 export enum ApplicationStatus {
   PENDING = 'pending',
+  UNDER_REVIEW = 'under_review',
   APPROVED = 'approved',
   REJECTED = 'rejected',
-  CANCELLED = 'cancelled'
+  CANCELLED = 'cancelled',
+  LEASE_SIGNED = 'lease_signed',
+  ACTIVE = 'active'
 }
 
 export interface Application {
@@ -130,10 +148,25 @@ export interface Application {
   property_id: string;
   renter_id: string;
   status: ApplicationStatus;
-  message: string;
-  move_in_date: string;
+  message?: string;
+  move_in_date?: string;
+  lease_start_date?: string;
+  lease_end_date?: string;
+  monthly_rent?: number;
+  security_deposit?: number;
+  documents?: ApplicationDocument[];
+  owner_notes?: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface ApplicationDocument {
+  id: string;
+  application_id: string;
+  document_type: string;
+  file_url: string;
+  uploaded_at: string;
+  status: 'pending' | 'approved' | 'rejected';
 }
 
 export interface Notification {
